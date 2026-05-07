@@ -16,7 +16,9 @@ This is a single-scene React Three Fiber app. The interesting design decisions l
 
 ### One chain, not two
 
-The necklace is **one continuous chain of 41 nodes**, not two chains joined by a pendant. Both endpoints are pinned to anchor points at the top (close together so they read as a single clasp), and the middle node (`midIndex = floor(totalNodes / 2)`) is flagged `isPendant` with `invMass = 1/pendantMass` so it sags under gravity to form the U shape. Mass-weighted PBD distance constraints keep the chain from stretching even with the heavy middle.
+The necklace is **one continuous chain of 47 nodes** (the default in `useChainSimulation.js`), not two chains joined by a pendant. Both endpoints are pinned to anchor points at the top, and the middle node (`midIndex = floor(totalNodes / 2)`) is flagged `isPendant` with `invMass = 1/pendantMass` so it sags under gravity to form the U shape. Mass-weighted PBD distance constraints keep the chain from stretching even with the heavy middle.
+
+The anchors are spread in **Z as well as X** (default `(±0.25, 6, ±1.2)`) — so the chain hangs in a plane that's tilted around the Y axis rather than lying flat in z=0. From the angled camera, this gives genuine depth: the right-Z strand reads as closer, the left-Z strand as farther. Pendant rest-position is still at `(0, low_y, 0)` by symmetry. The verlet/constraint code is fully 3D; the only place 2D was assumed was the chain initialization, which now interpolates Z too.
 
 Implications when modifying:
 - The pendant is *a chain node*, not a separate body. To move/pin the pendant, mutate `nodes[midIndex]` directly.
@@ -35,21 +37,29 @@ If swapping in a GLB, the GLB's origin must also be at the bail, or you wrap it 
 - `Necklace.jsx` is the orchestrator. Its `useFrame` calls `step()`, then imperatively updates pendant position/rotation and calls `updateChainMeshes()` to push node positions onto the link meshes.
 - `Chain.jsx` renders torus link meshes as a Fragment (no inner group). It returns a Fragment specifically so the link meshes are direct children of `chainGroupRef` in `Necklace.jsx` — `updateChainMeshes` mutates that array. If you ever wrap the meshes in an inner `<group>`, that helper will silently target the group instead of the meshes and the chain will collapse to a single point. Exports `updateChainMeshes(meshes, nodes, midIndex)`.
 
-### Pendant orientation: rigid pendulum (Z-axis only)
+### Pendant orientation: 2-axis rigid pendulum
 
-The pendant body is a **rigid pendulum** hanging from the bail. Single DOF: Z-axis tilt `θ` from straight-down. Each frame, `Necklace.jsx`:
+The pendant body is a **rigid pendulum** hanging from the bail with **two independent angular DOF**, both driven by the standard accelerating-pivot equation:
 
-1. Computes the bail's lateral and vertical acceleration (`a_x`, `a_y`) by second-differencing `node.lerped` over the last three frames (history kept in `bailHistoryRef`). Clamped to `±ACC_CLAMP` so a drag-start spike can't snap the body.
-2. Integrates the standard accelerating-pivot pendulum equation:
-   `θ'' = −(g + a_y)/L · sin(θ) − a_x/L · cos(θ) − c · θ'`
-   with `L = BAIL_TO_CENTER`, `g = 30` (matches chain gravity), `c = 2.5` (under-damped). Semi-implicit Euler, real `delta`.
-3. Sets `pendantRef.rotation.z = θ` and position to `bail.lerped`. Done.
+- `thetaZ` — in-plane swing (rotation around world Z), driven by bail `a_x`. Side-to-side.
+- `thetaX` — depth swing (rotation around world X), driven by bail `a_z`. Toward/away from camera.
 
-Why this and not chain-direction alignment: aligning the pendant with the chain's hang direction *flips it* if the user drags the bail above the chain neighbors — a previous version did this and it looked wrong. Real pendants can't invert under any normal input because gravity always restores toward θ = 0 and the bail-joint inertia term can't push past `±π/2`. The pendulum model is also frame-rate independent (proper `dt` integration) and responds to *acceleration*, not velocity — so a steady drag produces no torque, matching real physics.
+Each frame, `Necklace.jsx`:
 
-X and Y rotations are intentionally never set. In-plane chain motion can't physically tilt the pendant forward/back or twist it on its long axis; adding fake springs there just looks janky.
+1. Computes bail acceleration `(a_x, a_y, a_z)` by second-differencing `node.lerped` over three frames (history in `bailHistoryRef`). All three components clamped to `±ACC_CLAMP` so drag-start spikes can't snap the body.
+2. Integrates two pendulums in parallel:
+   - `θ_z'' = −(g + a_y)/L · sin(θ_z) − a_x/L · cos(θ_z) − c · θ_z'`
+   - `θ_x'' = −(g + a_y)/L · sin(θ_x) **+** a_z/L · cos(θ_x) − c · θ_x'`
+   Note the **sign flip on `a_z`**: positive `thetaX` rotates the body toward `-Z`, so a `+Z` bail acceleration (body lags in `-Z`) drives `+thetaX`. Constants: `L = BAIL_TO_CENTER`, `g = 30`, `c = 2.5`. Semi-implicit Euler with real `delta`.
+3. Sets `pendantRef.rotation.set(thetaX, 0, thetaZ)` (XYZ Euler order — for moderate angles, this composes the two tilts cleanly). Position is set to `bail.lerped`.
 
-The hit area is rendered as a `children` of `<Pendant>` so it inherits the rotation automatically — no separate hit-area math.
+Why two axes are needed now (and not before): the camera is angled, the chain plane is tilted in 3D, and dragging horizontally on screen produces world motion in *both* X and Z. A 1-axis Z-pendulum wouldn't respond at all to the Z component, and the body would look frozen for some drag directions.
+
+Why this and not chain-direction alignment: aligning the pendant with the chain's hang direction flips it if the user drags the bail above the chain neighbors. Real pendants can never invert because gravity always restores toward θ = 0 and the inertia term can't push past `±π/2`. The pendulum model is also frame-rate independent and responds to *acceleration*, not velocity — so a steady drag produces no torque.
+
+Y rotation (twist on the long axis) is intentionally never set: in-plane chain motion can't physically twist the pendant, and faking it looks janky.
+
+The hit area is rendered as a `children` of `<Pendant>` so it inherits both tilts automatically.
 
 `nodes[i].lerped` (a smoothed copy of `pos`) is what gets rendered, not `pos` itself. `smoothLerped()` runs after constraints each frame.
 

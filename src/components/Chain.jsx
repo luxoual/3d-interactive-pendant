@@ -14,7 +14,10 @@ export default function Chain({ nodes, midIndex }) {
     []
   )
 
-  const linkGeometry = useMemo(() => new THREE.TorusGeometry(0.068, 0.02, 8, 14), [])
+  // Outer radius (R + t) = 0.11, so adjacent links at segLength=0.18 overlap by
+  // ~0.04 and read as connected. The alternating 90° rotation in
+  // updateChainMeshes makes the overlap look like real interlocking links.
+  const linkGeometry = useMemo(() => new THREE.TorusGeometry(0.085, 0.025, 8, 16), [])
 
   return (
     <>

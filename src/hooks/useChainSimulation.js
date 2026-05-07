@@ -10,29 +10,44 @@ import * as THREE from 'three'
  * the chain from stretching even with the heavy pendant pulling down.
  */
 export function useChainSimulation({
-  totalNodes = 41,
-  segLength = 0.24,
+  totalNodes = 59,
+  segLength = 0.18,
   gravity = -30,
   damping = 0.96,
   iterations = 24,
   pendantMass = 4,
-  anchorL = new THREE.Vector3(-0.2, 6.0, 0),
-  anchorR = new THREE.Vector3(0.2, 6.0, 0)
+  // Anchors are spread in Z so the chain hangs in a tilted plane, giving real
+  // depth from the angled camera (right strand forward, left strand back).
+  // World-Y is asymmetric to compensate for perspective: the closer anchor
+  // (z=+1.2) is dropped and the farther one (z=-1.2) raised so both project
+  // to the same screen Y. Tuned for camera (10, 1.5, 18) looking at (0,1,0);
+  // re-solve if the camera moves.
+  anchorL = new THREE.Vector3(-0.25, 6.26, -1.2),
+  anchorR = new THREE.Vector3(0.25, 5.74, 1.2)
 }) {
   const dt = 1 / 60
   const MID = Math.floor(totalNodes / 2)
 
-  // Initialize chain in a U shape between the two anchors
+  // Initialize chain in a U shape between the two anchors. Z is interpolated
+  // along with X so the starting shape lies near the rest plane.
   const nodes = useMemo(() => {
     const arr = []
     for (let i = 0; i < totalNodes; i++) {
       let p
       if (i <= MID) {
         const t = i / MID
-        p = new THREE.Vector3(anchorL.x * (1 - t), anchorL.y - t * 4.5, 0)
+        p = new THREE.Vector3(
+          anchorL.x * (1 - t),
+          anchorL.y - t * 4.5,
+          anchorL.z * (1 - t)
+        )
       } else {
         const t = (i - MID) / (totalNodes - 1 - MID)
-        p = new THREE.Vector3(anchorR.x * t, anchorL.y - 4.5 + t * 4.5, 0)
+        p = new THREE.Vector3(
+          anchorR.x * t,
+          anchorL.y - 4.5 + t * 4.5,
+          anchorR.z * t
+        )
       }
       arr.push({
         pos: p.clone(),

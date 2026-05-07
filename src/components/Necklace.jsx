@@ -10,12 +10,17 @@ export default function Necklace() {
 
   const pendantRef = useRef()
   const chainGroupRef = useRef()
-  // Rigid pendulum hanging from the bail. theta = Z-axis tilt from straight
-  // down (radians). Only ever Z; X/Y rotations would be unphysical for a
-  // pendant on a 2D-swinging chain.
-  const pendulumRef = useRef({ theta: 0, omega: 0 })
-  // Bail position history for computing acceleration via second-difference.
-  const bailHistoryRef = useRef({ x: 0, y: 0, prevX: 0, prevY: 0, init: false })
+  // 2-axis rigid pendulum hanging from the bail.
+  //   thetaZ: in-plane swing (around world Z) — driven by bail a_x
+  //   thetaX: depth swing    (around world X) — driven by bail a_z
+  // Two independent damped pendulums; together the body's "down" direction
+  // can point anywhere in the lower hemisphere, matching a real chain pendant.
+  const pendulumRef = useRef({ thetaX: 0, omegaX: 0, thetaZ: 0, omegaZ: 0 })
+  const bailHistoryRef = useRef({
+    x: 0, y: 0, z: 0,
+    prevX: 0, prevY: 0, prevZ: 0,
+    init: false
+  })
   const [hovered, setHovered] = useState(false)
 
   const { camera } = useThree()
@@ -65,41 +70,54 @@ export default function Necklace() {
     // Bail acceleration via second-difference of its rendered position.
     const bh = bailHistoryRef.current
     if (!bh.init) {
-      bh.x = bail.x; bh.y = bail.y
-      bh.prevX = bail.x; bh.prevY = bail.y
+      bh.x = bail.x; bh.y = bail.y; bh.z = bail.z
+      bh.prevX = bail.x; bh.prevY = bail.y; bh.prevZ = bail.z
       bh.init = true
     }
     const dt2 = Math.max(1e-6, dt * dt)
     let ax = (bail.x - 2 * bh.x + bh.prevX) / dt2
     let ay = (bail.y - 2 * bh.y + bh.prevY) / dt2
-    bh.prevX = bh.x; bh.prevY = bh.y
-    bh.x = bail.x; bh.y = bail.y
+    let az = (bail.z - 2 * bh.z + bh.prevZ) / dt2
+    bh.prevX = bh.x; bh.prevY = bh.y; bh.prevZ = bh.z
+    bh.x = bail.x; bh.y = bail.y; bh.z = bail.z
 
     // Clamp the spike that drag-start can produce, so the body doesn't snap.
     const ACC_CLAMP = 250
     ax = Math.max(-ACC_CLAMP, Math.min(ACC_CLAMP, ax))
     ay = Math.max(-ACC_CLAMP, Math.min(ACC_CLAMP, ay))
+    az = Math.max(-ACC_CLAMP, Math.min(ACC_CLAMP, az))
 
-    // Rigid pendulum. The body's only DOF is Z-axis tilt; gravity always
-    // restores toward straight-down, and bail acceleration kicks it through
-    // the standard accelerating-pivot inertial torque. This is exactly the
-    // motion of a real pendant on a chain — it can never invert under normal
-    // input, because gravity and inertia don't push past θ = ±π/2.
-    //   θ'' = −(g + a_y)/L · sin(θ) − a_x/L · cos(θ) − c · θ'
+    // Two independent rigid pendulums — one in the XY plane (Z-axis rotation,
+    // driven by bail a_x) and one in the YZ plane (X-axis rotation, driven by
+    // bail a_z). Each follows the standard accelerating-pivot pendulum:
+    //   θ'' = −(g + a_y)/L · sin(θ) ∓ a_⊥/L · cos(θ) − c · θ'
+    // Together they let the body's down-direction point anywhere in the lower
+    // hemisphere, so the pendant can swing toward/away from the camera as
+    // well as side-to-side. Still can't invert: gravity always restores.
     const p = pendulumRef.current
     const L = BAIL_TO_CENTER
-    const g = 30 // matches chain-sim gravity for consistent timing
-    const c = 2.5 // damping coefficient (under-damped, so it swings visibly)
-    const accRot =
-      -((g + ay) / L) * Math.sin(p.theta)
-      - (ax / L) * Math.cos(p.theta)
-      - c * p.omega
-    p.omega += accRot * dt
-    p.theta += p.omega * dt
+    const g = 30
+    const c = 2.5
+
+    const accZ =
+      -((g + ay) / L) * Math.sin(p.thetaZ)
+      - (ax / L) * Math.cos(p.thetaZ)
+      - c * p.omegaZ
+    p.omegaZ += accZ * dt
+    p.thetaZ += p.omegaZ * dt
+
+    // Sign on a_z is +: positive thetaX rotates the body toward -Z, so a +Z
+    // bail acceleration (body lags in -Z) drives positive thetaX.
+    const accX =
+      -((g + ay) / L) * Math.sin(p.thetaX)
+      + (az / L) * Math.cos(p.thetaX)
+      - c * p.omegaX
+    p.omegaX += accX * dt
+    p.thetaX += p.omegaX * dt
 
     if (pendantRef.current) {
       pendantRef.current.position.set(bail.x, bail.y, bail.z)
-      pendantRef.current.rotation.set(0, 0, p.theta)
+      pendantRef.current.rotation.set(p.thetaX, 0, p.thetaZ)
     }
 
     if (typeof document !== 'undefined') {
