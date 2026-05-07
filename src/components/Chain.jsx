@@ -1,14 +1,14 @@
-import { useMemo, useRef } from 'react'
+import { useMemo } from 'react'
 import * as THREE from 'three'
 
 /**
  * Renders the chain as a series of torus meshes between consecutive nodes.
  * Skips the two segments adjacent to the pendant node (covered by the bail).
+ *
+ * Returns a Fragment, not a group — the parent's group is the one we hand
+ * to updateChainMeshes, so its children must be the link meshes themselves.
  */
 export default function Chain({ nodes, midIndex }) {
-  const groupRef = useRef()
-  const linkRefs = useRef([])
-
   const linkMaterial = useMemo(
     () => new THREE.MeshStandardMaterial({ color: 0xd0d0d0, metalness: 1.0, roughness: 0.07 }),
     []
@@ -16,22 +16,20 @@ export default function Chain({ nodes, midIndex }) {
 
   const linkGeometry = useMemo(() => new THREE.TorusGeometry(0.068, 0.02, 8, 14), [])
 
-  // We use useFrame in the parent (Necklace) to update positions, just render the meshes here
   return (
-    <group ref={groupRef}>
+    <>
       {nodes.slice(0, -1).map((_, i) => {
         const hidden = i === midIndex - 1 || i === midIndex
         return (
           <mesh
             key={i}
-            ref={(el) => (linkRefs.current[i] = el)}
             geometry={linkGeometry}
             material={linkMaterial}
             visible={!hidden}
           />
         )
       })}
-    </group>
+    </>
   )
 }
 

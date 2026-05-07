@@ -12,7 +12,7 @@ export const BAIL_TO_CENTER = PH / 2 + 0.3
  * To replace with a Blender model: swap the body content with <primitive object={gltf.scene} />
  * Make sure the GLB is exported with origin at the bail position.
  */
-const Pendant = forwardRef(function Pendant(props, ref) {
+const Pendant = forwardRef(function Pendant({ children, ...props }, ref) {
   const materials = useMemo(
     () => ({
       dark: new THREE.MeshStandardMaterial({ color: 0x111111, metalness: 0.85, roughness: 0.18 }),
@@ -95,6 +95,8 @@ const Pendant = forwardRef(function Pendant(props, ref) {
       <mesh material={materials.bail}>
         <torusGeometry args={[0.13, 0.035, 12, 24]} />
       </mesh>
+
+      {children}
     </group>
   )
 })

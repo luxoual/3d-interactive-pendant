@@ -9,9 +9,13 @@ export default function Necklace() {
   const { nodes, midIndex, draggingRef, mouseTargetRef, step } = useChainSimulation({})
 
   const pendantRef = useRef()
-  const hitAreaRef = useRef()
   const chainGroupRef = useRef()
-  const swingRef = useRef({ angle: 0, vel: 0 })
+  // Rigid pendulum hanging from the bail. theta = Z-axis tilt from straight
+  // down (radians). Only ever Z; X/Y rotations would be unphysical for a
+  // pendant on a 2D-swinging chain.
+  const pendulumRef = useRef({ theta: 0, omega: 0 })
+  // Bail position history for computing acceleration via second-difference.
+  const bailHistoryRef = useRef({ x: 0, y: 0, prevX: 0, prevY: 0, init: false })
   const [hovered, setHovered] = useState(false)
 
   const { camera } = useThree()
@@ -30,6 +34,9 @@ export default function Necklace() {
     const node = nodes[midIndex].pos
     const world = toWorld(e.pointer)
     dragOffset.current.set(world.x - node.x, world.y - node.y, 0)
+    // Seed the drag target so a useFrame between pointerdown and pointermove
+    // doesn't yank the pendant toward the (0,0,0) default.
+    mouseTargetRef.current.copy(node)
     draggingRef.current = true
   }
 
@@ -45,36 +52,54 @@ export default function Necklace() {
   }
 
   useFrame((state, delta) => {
-    step(Math.min(0.05, delta))
+    const dt = Math.min(0.05, delta)
+    step(dt)
 
     if (chainGroupRef.current) {
       updateChainMeshes(chainGroupRef.current.children, nodes, midIndex)
     }
 
-    // Pendant swing: damped pendulum responding to bail node's lateral motion
     const node = nodes[midIndex]
-    const nodeVelX = node.pos.x - node.prev.x
-    const swing = swingRef.current
-    const targetSwing = -nodeVelX * 1.5
-    swing.vel += -swing.angle * 0.18 + (targetSwing - swing.angle) * 0.05
-    swing.vel *= 0.92
-    swing.angle = Math.max(-0.7, Math.min(0.7, swing.angle + swing.vel))
+    const bail = node.lerped
 
-    const bail = nodes[midIndex].lerped
+    // Bail acceleration via second-difference of its rendered position.
+    const bh = bailHistoryRef.current
+    if (!bh.init) {
+      bh.x = bail.x; bh.y = bail.y
+      bh.prevX = bail.x; bh.prevY = bail.y
+      bh.init = true
+    }
+    const dt2 = Math.max(1e-6, dt * dt)
+    let ax = (bail.x - 2 * bh.x + bh.prevX) / dt2
+    let ay = (bail.y - 2 * bh.y + bh.prevY) / dt2
+    bh.prevX = bh.x; bh.prevY = bh.y
+    bh.x = bail.x; bh.y = bail.y
+
+    // Clamp the spike that drag-start can produce, so the body doesn't snap.
+    const ACC_CLAMP = 250
+    ax = Math.max(-ACC_CLAMP, Math.min(ACC_CLAMP, ax))
+    ay = Math.max(-ACC_CLAMP, Math.min(ACC_CLAMP, ay))
+
+    // Rigid pendulum. The body's only DOF is Z-axis tilt; gravity always
+    // restores toward straight-down, and bail acceleration kicks it through
+    // the standard accelerating-pivot inertial torque. This is exactly the
+    // motion of a real pendant on a chain — it can never invert under normal
+    // input, because gravity and inertia don't push past θ = ±π/2.
+    //   θ'' = −(g + a_y)/L · sin(θ) − a_x/L · cos(θ) − c · θ'
+    const p = pendulumRef.current
+    const L = BAIL_TO_CENTER
+    const g = 30 // matches chain-sim gravity for consistent timing
+    const c = 2.5 // damping coefficient (under-damped, so it swings visibly)
+    const accRot =
+      -((g + ay) / L) * Math.sin(p.theta)
+      - (ax / L) * Math.cos(p.theta)
+      - c * p.omega
+    p.omega += accRot * dt
+    p.theta += p.omega * dt
 
     if (pendantRef.current) {
       pendantRef.current.position.set(bail.x, bail.y, bail.z)
-      pendantRef.current.rotation.set(0.04, swing.angle * 0.15, swing.angle)
-    }
-
-    // Hit area: track pendant body position (rotated down from bail by swing angle)
-    if (hitAreaRef.current) {
-      hitAreaRef.current.position.set(
-        bail.x + Math.sin(swing.angle) * -BAIL_TO_CENTER,
-        bail.y + Math.cos(swing.angle) * -BAIL_TO_CENTER,
-        bail.z
-      )
-      hitAreaRef.current.rotation.set(0, 0, swing.angle)
+      pendantRef.current.rotation.set(0, 0, p.theta)
     }
 
     if (typeof document !== 'undefined') {
@@ -84,19 +109,19 @@ export default function Necklace() {
 
   return (
     <>
-      <Pendant ref={pendantRef} />
-
-      <mesh
-        ref={hitAreaRef}
-        onPointerDown={handlePointerDown}
-        onPointerUp={handlePointerUp}
-        onPointerMove={handlePointerMove}
-        onPointerOver={() => setHovered(true)}
-        onPointerOut={() => setHovered(false)}
-      >
-        <boxGeometry args={[2, 2.6, 0.6]} />
-        <meshBasicMaterial transparent opacity={0} depthWrite={false} />
-      </mesh>
+      <Pendant ref={pendantRef}>
+        <mesh
+          position={[0, -BAIL_TO_CENTER, 0]}
+          onPointerDown={handlePointerDown}
+          onPointerUp={handlePointerUp}
+          onPointerMove={handlePointerMove}
+          onPointerOver={() => setHovered(true)}
+          onPointerOut={() => setHovered(false)}
+        >
+          <boxGeometry args={[2, 2.6, 0.6]} />
+          <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+        </mesh>
+      </Pendant>
 
       <group ref={chainGroupRef}>
         <Chain nodes={nodes} midIndex={midIndex} />
