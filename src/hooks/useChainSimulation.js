@@ -64,6 +64,10 @@ export function useChainSimulation({
 
   const draggingRef = useRef(false)
   const mouseTargetRef = useRef(new THREE.Vector3())
+  // Accumulator for fixed-dt sub-stepping so the chain runs at a real-time
+  // 60Hz regardless of render framerate (otherwise on a 30fps mobile device
+  // the chain advances at half speed — slow motion).
+  const accumRef = useRef(0)
 
   function integrate() {
     for (let i = 0; i < nodes.length; i++) {
@@ -139,8 +143,15 @@ export function useChainSimulation({
   }
 
   function step(delta) {
-    integrate()
-    solveConstraints()
+    // Fixed-dt sub-stepping. Cap the accumulator so a long pause (tab
+    // backgrounded, debugger, etc.) doesn't trigger a "spiral of death"
+    // where we try to catch up by running hundreds of steps in one frame.
+    accumRef.current = Math.min(0.25, accumRef.current + delta)
+    while (accumRef.current >= dt) {
+      integrate()
+      solveConstraints()
+      accumRef.current -= dt
+    }
     smoothLerped(delta)
   }
 

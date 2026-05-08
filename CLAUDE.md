@@ -20,6 +20,8 @@ The necklace is **one continuous chain of 47 nodes** (the default in `useChainSi
 
 The anchors are spread in **Z as well as X** (default `(±0.25, 6, ±1.2)`) — so the chain hangs in a plane that's tilted around the Y axis rather than lying flat in z=0. From the angled camera, this gives genuine depth: the right-Z strand reads as closer, the left-Z strand as farther. Pendant rest-position is still at `(0, low_y, 0)` by symmetry. The verlet/constraint code is fully 3D; the only place 2D was assumed was the chain initialization, which now interpolates Z too.
 
+**Fixed-dt sub-stepping.** The verlet integrator and constraint solver use a constant `dt = 1/60`. To stay at real-time speed regardless of render framerate, `step(delta)` accumulates `delta` and runs as many fixed-`dt` sub-steps as needed (capped at 0.25 sec to avoid a spiral of death after a long pause). On 30fps mobile that's 2 chain steps per render frame; on 120fps it's 1 step every other frame. Net: chain always advances 60 simulated steps per real second. Without this the chain ran at half speed on lower-fps devices (slow-motion bug). The pendulum in `Necklace.jsx` already uses real `delta`, so it didn't have the issue.
+
 Implications when modifying:
 - The pendant is *a chain node*, not a separate body. To move/pin the pendant, mutate `nodes[midIndex]` directly.
 - `solveConstraints` treats the pendant as fixed when `draggingRef.current` is true (see the `aFixed`/`bFixed` checks). Don't add a separate "drag" code path; the existing branch handles it.
