@@ -12,8 +12,8 @@ import * as THREE from 'three'
 export function useChainSimulation({
   totalNodes = 59,
   segLength = 0.18,
-  gravity = -30,
-  damping = 0.96,
+  gravity = -50,
+  damping = 0.965,
   iterations = 24,
   pendantMass = 4,
   // Anchors are spread in Z so the chain hangs in a tilted plane, giving real

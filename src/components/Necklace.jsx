@@ -96,7 +96,7 @@ export default function Necklace() {
     // well as side-to-side. Still can't invert: gravity always restores.
     const p = pendulumRef.current
     const L = BAIL_TO_CENTER
-    const g = 30
+    const g = 50 // matches chain-sim gravity so the body and chain swing on the same clock
     const c = 2.5
 
     const accZ =
